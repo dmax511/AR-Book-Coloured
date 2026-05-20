@@ -250,4 +250,4 @@ if __name__ == '__main__':
     os.makedirs(ZPT_OUTPUT_DIR, exist_ok=True)
     os.makedirs(IMAGES_DIR, exist_ok=True)
     
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, )
