@@ -1,0 +1,30 @@
+{
+  "name": "template-imagetracking",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "echo 'Zapworks CLI installed locally'"
+  },
+  "engines": {
+    "node": "20.0.0",
+    "npm": ">=9.0.0"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "0.150.1",
+    "@zcomponent/core": "1.x",
+    "@zcomponent/html": "1.x",
+    "@zcomponent/three": "1.x",
+    "@zcomponent/zappar-three": "4.x",
+    "serp": "^2.2.2",
+    "google-search-results-nodejs": "^2.1.0",
+    "chrome-lens-ocr": "^4.1.1",
+    "@zappar/zapworks-cli": "^2.3.3"
+  },
+  "devDependencies": {
+    "@types/three": "0.150.1",
+    "typescript": "4.8.4"
+  }
+}
