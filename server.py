@@ -9,6 +9,8 @@ from pathlib import Path
 from PIL import Image
 from io import BytesIO
 
+app = Flask(__name__)
+
 @app.before_request
 def debug():
     print(">>> METHOD:", request.method)
