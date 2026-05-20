@@ -15,6 +15,7 @@ app = Flask(__name__)
 def debug():
     print(">>> METHOD:", request.method)
     print(">>> PATH:", request.path)
+    print(">>> HEADERS:", dict(request.headers))
 
 
 CORS(app, supports_credentials=True, resources={r"/*": {
@@ -28,9 +29,13 @@ CORS(app, supports_credentials=True, resources={r"/*": {
 SERPAPI_KEY = "c11b99eb983388f815841b4d0f45bb1b6af080ef6895ec2a3"
 
 # Path to store generated .zpt files and source images
-PROJECT_ROOT = os.path.dirname(__file__)
+PROJECT_ROOT = os.path.dirname(__file__) or os.getcwd()
 ZPT_OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'assets', 'tracking')
 IMAGES_DIR = os.path.join(PROJECT_ROOT, 'assets', 'images')
+
+# Create directories immediately on import
+os.makedirs(ZPT_OUTPUT_DIR, exist_ok=True)
+os.makedirs(IMAGES_DIR, exist_ok=True)
 
 @app.route('/google-lens-search', methods=['POST', 'OPTIONS'])
 def google_lens_search():
@@ -242,10 +247,24 @@ def index():
         'endpoints': [
             '/google-lens-search',
             '/create-zpt',
-            '/assets/<path>'
+            '/assets/<path>',
+            '/test',
+            '/health'
         ],
         'status': 'online'
     })
+
+@app.route('/test', methods=['GET'])
+def test():
+    return jsonify({
+        'status': 'ok',
+        'message': 'Server is running',
+        'method': request.method
+    })
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'healthy'}), 200
 
 if __name__ == '__main__':
     print("🚀 Starting Google Lens Proxy Server with Zapworks CLI...")
@@ -258,4 +277,7 @@ if __name__ == '__main__':
     os.makedirs(ZPT_OUTPUT_DIR, exist_ok=True)
     os.makedirs(IMAGES_DIR, exist_ok=True)
     
-    app.run(host='0.0.0.0', port=5000, )
+    # Get port from environment variable (Render.com provides this)
+    port = int(os.environ.get('PORT', 5000))
+    print(f"🌐 Starting server on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
