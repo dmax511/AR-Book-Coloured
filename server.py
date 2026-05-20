@@ -11,9 +11,11 @@ from io import BytesIO
 
 app = Flask(__name__)
 CORS(app, resources={
-    r"/google-lens-search": {"origins": "*"}, 
-    r"/create-zpt": {"origins": "*"},
-    r"/assets/*": {"origins": "*"}
+    r"/google-lens-search": {
+        "origins": "*",
+        "methods": ["POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"]
+    }
 })
 
 # Your SerpAPI key
