@@ -7,7 +7,7 @@
     "postinstall": "echo 'Zapworks CLI installed locally'"
   },
   "engines": {
-    "node": "18.17.0",
+    "node": "20.0.0",
     "npm": ">=9.0.0"
   },
   "author": "",
