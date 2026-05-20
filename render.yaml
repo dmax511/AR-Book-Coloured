@@ -2,10 +2,10 @@ services:
   - type: web
     name: ar-book-server
     env: python
-    buildCommand: "npm install && pip install -r requirements.txt"
-    startCommand: "python server.py"
+    pythonVersion: 3.11
+    nodeVersion: 18.17.0
+    buildCommand: "npm install --legacy-peer-deps && pip install -r requirements.txt"
+    startCommand: "gunicorn --bind 0.0.0.0:5000 server:app"
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
-      - key: NODE_VERSION
-        value: 18.17.0
+      - key: PYTHONUNBUFFERED
+        value: "1"
