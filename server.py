@@ -1,28 +1,19 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 import base64
-import subprocess
-import tempfile
 import os
-from pathlib import Path
-from PIL import Image
-from io import BytesIO
+import re
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 CORS(app, resources={
-    r"/google-lens-search": {"origins": "*"}, 
-    r"/create-zpt": {"origins": "*"},
-    r"/assets/*": {"origins": "*"}
+    r"/google-lens-search": {"origins": "*"},
+    r"/text-search": {"origins": "*"},
+    r"/find-high-res": {"origins": "*"}
 })
 
-# Your SerpAPI key
-SERPAPI_KEY = "c11b99eb983388f815841b4d0f45bb1b6af080ef6895ec2a3"
-
-# Path to store generated .zpt files and source images
-PROJECT_ROOT = os.path.dirname(__file__)
-ZPT_OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'assets', 'tracking')
-IMAGES_DIR = os.path.join(PROJECT_ROOT, 'assets', 'images')
+SERPAPI_KEY = "c11b99eb983388f815841b4d0f45bb1b6af080ef6895ec2a3cac91bf916372b0"
 
 @app.route('/google-lens-search', methods=['POST', 'OPTIONS'])
 def google_lens_search():
@@ -31,223 +22,204 @@ def google_lens_search():
     
     try:
         data = request.get_json()
-        image_data = data.get('image')
-        
-        if not image_data:
+        if not data or 'image' not in data:
             return jsonify({'error': 'No image provided'}), 400
         
-        # Remove data URL prefix if present
-        if ',' in image_data:
-            image_data = image_data.split(',')[1]
+        base64_image = data['image']
+        text_query = data.get('text', None)  # Optional text query for refinement
+        image_bytes = base64.b64decode(base64_image)
         
-        # Decode base64 image
-        image_bytes = base64.b64decode(image_data)
-        
-        print(f"Sending {len(image_bytes)} bytes to SerpAPI...")
-        
-        # Prepare multipart form data for SerpAPI
         files = {
             'image': ('image.jpg', image_bytes, 'image/jpeg')
         }
-        
         params = {
             'engine': 'google_lens',
-            'api_key': SERPAPI_KEY,
-            'hl': 'en',  # Language
-            'country': 'us'  # Country
+            'api_key': SERPAPI_KEY
         }
         
-        # FIXED: Correct SerpAPI endpoint with .json extension
+        # Add text query if provided for combined image+text search
+        if text_query:
+            params['q'] = text_query
+            print(f"Adding text query to image search: {text_query}")
+        
+        print(f"Sending {len(image_bytes)} bytes to SerpAPI...")
         response = requests.post(
-            'https://serpapi.com/search.json',
+            'https://serpapi.com/search',
             files=files,
             data=params,
-            timeout=30
+            timeout=60
         )
         
         print(f"SerpAPI response status: {response.status_code}")
         
         if response.status_code == 200:
-            result = response.json()
-            print(f"✅ Success! Found {len(result.get('visual_matches', []))} visual matches")
-            return jsonify(result)
+            return jsonify(response.json()), 200
         else:
-            print(f"❌ Error response: {response.text}")
             return jsonify({
                 'error': f'SerpAPI error {response.status_code}',
-                'details': response.text
+                'details': response.text[:500]
             }), response.status_code
             
     except Exception as e:
-        print(f"❌ Exception: {str(e)}")
+        print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/create-zpt', methods=['POST', 'OPTIONS'])
-def create_zpt():
-    """
-    Create a .zpt tracking file from captured image data
-    1. Save source image to /assets/images
-    2. Use Zapworks CLI to create .zpt file
-    3. Save .zpt to /assets/tracking
-    4. Return path for ImageTracker to use
-    """
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'})
+
+@app.route('/text-search', methods=['POST', 'OPTIONS'])
+def text_search():
+    """Search Google Lens with text query only (no image)"""
+    print(f"Received {request.method} request to /text-search")
+    
+    if request.method == 'OPTIONS':
+        print("Handling CORS preflight")
+        return '', 200
+    
+    try:
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({'error': 'No text query provided'}), 400
+        
+        text_query = data['text']
+        print(f"Text search query: {text_query}")
+        
+        # Use Google Lens text search
+        params = {
+            'engine': 'google_lens',
+            'q': text_query,
+            'api_key': SERPAPI_KEY,
+            'hl': 'en'
+        }
+        
+        print(f"Sending text query to SerpAPI: {text_query}")
+        response = requests.get(
+            'https://serpapi.com/search',
+            params=params,
+            timeout=60
+        )
+        
+        print(f"SerpAPI Response Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"Success! Text search results received")
+            return jsonify(result), 200
+        else:
+            return jsonify({
+                'error': f'SerpAPI error {response.status_code}',
+                'details': response.text[:500]
+            }), response.status_code
+            
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/find-high-res', methods=['POST', 'OPTIONS'])
+def find_high_res():
+    """Find higher resolution versions of an image"""
+    print(f"Received {request.method} request to /find-high-res")
+    
     if request.method == 'OPTIONS':
         return '', 200
     
     try:
         data = request.get_json()
-        image_data = data.get('image')
-        filename = data.get('filename', 'snapshot_tracking')
+        if not data or 'url' not in data:
+            return jsonify({'error': 'No URL provided'}), 400
         
-        if not image_data:
-            return jsonify({'error': 'No image provided'}), 400
+        image_url = data['url']
+        print(f"Finding high-res version of: {image_url}")
         
-        # Remove data URL prefix if present
-        if ',' in image_data:
-            image_data = image_data.split(',')[1]
+        # Try to extract higher resolution from URL patterns
+        high_res_urls = extract_high_res_variants(image_url)
         
-        # Decode base64 image
-        image_bytes = base64.b64decode(image_data)
+        # Validate which URLs actually work
+        working_urls = []
+        for url in high_res_urls[:5]:  # Check top 5 candidates
+            try:
+                head_response = requests.head(url, timeout=5, allow_redirects=True)
+                if head_response.status_code == 200:
+                    working_urls.append({
+                        'url': url,
+                        'content_length': head_response.headers.get('content-length', 'unknown')
+                    })
+            except:
+                continue
         
-        print(f"📸 Received {len(image_bytes)} bytes for ZPT creation...")
+        return jsonify({
+            'original': image_url,
+            'alternatives': working_urls,
+            'highest_res': working_urls[0]['url'] if working_urls else image_url
+        }), 200
         
-        # Create directories if they don't exist
-        os.makedirs(ZPT_OUTPUT_DIR, exist_ok=True)
-        os.makedirs(IMAGES_DIR, exist_ok=True)
-        
-        # Step 1: Save source image to /assets/images
-        source_image_filename = f"{filename}.jpg"
-        source_image_path = os.path.join(IMAGES_DIR, source_image_filename)
-        
-        # Convert to JPEG for optimal size
-        try:
-            img = Image.open(BytesIO(image_bytes))
-            # Resize if too large (Zapworks works best with images < 2048px)
-            max_size = 2048
-            if max(img.size) > max_size:
-                ratio = max_size / max(img.size)
-                new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
-                img = img.resize(new_size, Image.Resampling.LANCZOS)
-                print(f"📐 Resized image to {new_size}")
-            
-            # Convert to RGB if necessary
-            if img.mode in ('RGBA', 'LA', 'P'):
-                background = Image.new('RGB', img.size, (255, 255, 255))
-                if img.mode == 'P':
-                    img = img.convert('RGBA')
-                background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
-                img = background
-            
-            # Save optimized JPEG
-            img.save(source_image_path, 'JPEG', quality=85, optimize=True)
-            print(f"💾 Source image saved to: {source_image_path}")
-            
-        except Exception as img_error:
-            print(f"⚠️ Image optimization failed: {img_error}, saving raw...")
-            with open(source_image_path, 'wb') as f:
-                f.write(image_bytes)
-        
-        # Step 2: Create .zpt file using Zapworks CLI
-        output_filename = f"{filename}.zpt"
-        output_path = os.path.join(ZPT_OUTPUT_DIR, output_filename)
-        
-        print(f"🔨 Creating .zpt file with Zapworks CLI...")
-        
-        try:
-            # Use locally installed Zapworks CLI from node_modules
-            zapworks_cli = os.path.join(PROJECT_ROOT, 'node_modules', '.bin', 'zapworks')
-            
-            # Fallback to global if local not found
-            if not os.path.exists(zapworks_cli):
-                zapworks_cli = 'zapworks'
-            
-            print(f"🔧 Using Zapworks CLI: {zapworks_cli}")
-            
-            # Run Zapworks CLI command to train the image
-            result = subprocess.run(
-                [zapworks_cli, 'train', source_image_path, '-o', output_path],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                cwd=PROJECT_ROOT
-            )
-            
-            if result.returncode != 0:
-                print(f"❌ Zapworks CLI error: {result.stderr}")
-                return jsonify({
-                    'error': 'Zapworks CLI training failed',
-                    'details': result.stderr,
-                    'stdout': result.stdout
-                }), 500
-            
-            print(f"✅ .zpt file created: {output_path}")
-            
-            # Check if file was actually created
-            if not os.path.exists(output_path):
-                return jsonify({
-                    'error': 'ZPT file was not created',
-                    'details': 'CLI completed but no output file found'
-                }), 500
-            
-            file_size = os.path.getsize(output_path)
-            source_size = os.path.getsize(source_image_path)
-            print(f"📦 ZPT file size: {file_size} bytes")
-            print(f"📦 Source image size: {source_size} bytes")
-            
-            # Return file-relative paths that work with Mattercraft
-            return jsonify({
-                'success': True,
-                'source_image': f'./assets/images/{source_image_filename}',
-                'zpt_file': output_filename,
-                'zpt_path': f'./assets/tracking/{output_filename}',
-                'file_size': file_size,
-                'source_size': source_size,
-                'message': 'Tracking file created successfully'
-            })
-            
-        except FileNotFoundError:
-            return jsonify({
-                'error': 'Zapworks CLI not found',
-                'details': 'Please install Zapworks CLI: npm install -g @zappar/zapworks-cli'
-            }), 500
-        except subprocess.TimeoutExpired:
-            return jsonify({
-                'error': 'Zapworks CLI timeout',
-                'details': 'Training took too long (>120s)'
-            }), 500
-            
     except Exception as e:
-        print(f"❌ Exception: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/assets/<path:filepath>')
-def serve_assets(filepath):
-    """Serve asset files (images, .zpt files, etc.)"""
-    return send_from_directory('assets', filepath)
 
-@app.route('/')
-def index():
+def extract_high_res_variants(url):
+    """Extract potential higher resolution variants from URL"""
+    variants = [url]  # Always include original
+    
+    # Common resolution parameters to try
+    high_res_params = [
+        ('w', ['1920', '2048', '2560', '3840']),
+        ('h', ['1080', '1440', '1536', '2160']),
+        ('s', ['2048', '1920', '1600']),
+        ('size', ['large', 'xlarge', 'original']),
+        ('quality', ['100', '95', '90'])
+    ]
+    
+    parsed = urlparse(url)
+    
+    # Method 1: Modify query parameters
+    for param, values in high_res_params:
+        for value in values:
+            modified_url = re.sub(f'{param}=\\d+', f'{param}={value}', url)
+            if modified_url != url:
+                variants.append(modified_url)
+    
+    # Method 2: Remove size restrictions
+    variants.append(re.sub(r'/s\d+/', '/s2048/', url))
+    variants.append(re.sub(r'=s\d+', '=s2048', url))
+    variants.append(re.sub(r'_s\d+', '_s2048', url))
+    
+    # Method 3: Try common high-res suffixes
+    base_url = url.rsplit('.', 1)
+    if len(base_url) == 2:
+        ext = base_url[1].split('?')[0]
+        variants.append(f"{base_url[0]}_large.{ext}")
+        variants.append(f"{base_url[0]}_xlarge.{ext}")
+        variants.append(f"{base_url[0]}_original.{ext}")
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_variants = []
+    for v in variants:
+        if v not in seen:
+            seen.add(v)
+            unique_variants.append(v)
+    
+    return unique_variants
+
+
+@app.route('/', methods=['GET'])
+def home():
     return jsonify({
-        'message': 'Google Lens Proxy API with Zapworks Integration', 
+        'message': 'Google Lens Proxy API',
         'endpoints': [
-            '/google-lens-search',
-            '/create-zpt',
-            '/assets/<path>'
-        ],
-        'status': 'online'
+            '/google-lens-search - Search with image (POST)',
+            '/text-search - Search with text only (POST)',
+            '/find-high-res - Find higher resolution images (POST)',
+            '/health - Health check (GET)'
+        ]
     })
 
 if __name__ == '__main__':
-    print("🚀 Starting Google Lens Proxy Server with Zapworks CLI...")
-    print(f"📡 SerpAPI Key: {SERPAPI_KEY[:20]}...")
-    print(f"📁 ZPT Output Directory: {ZPT_OUTPUT_DIR}")
-    print(f"📁 Images Directory: {IMAGES_DIR}")
-    print(f"📁 Project Root: {PROJECT_ROOT}")
-    
-    # Create directories if they don't exist
-    os.makedirs(ZPT_OUTPUT_DIR, exist_ok=True)
-    os.makedirs(IMAGES_DIR, exist_ok=True)
-    
-    app.run(host='0.0.0.0', port=5000, )
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
