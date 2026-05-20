@@ -154,9 +154,18 @@ def create_zpt():
         print(f"🔨 Creating .zpt file with Zapworks CLI...")
         
         try:
+            # Use locally installed Zapworks CLI from node_modules
+            zapworks_cli = os.path.join(PROJECT_ROOT, 'node_modules', '.bin', 'zapworks')
+            
+            # Fallback to global if local not found
+            if not os.path.exists(zapworks_cli):
+                zapworks_cli = 'zapworks'
+            
+            print(f"🔧 Using Zapworks CLI: {zapworks_cli}")
+            
             # Run Zapworks CLI command to train the image
             result = subprocess.run(
-                ['zapworks', 'train', source_image_path, '-o', output_path],
+                [zapworks_cli, 'train', source_image_path, '-o', output_path],
                 capture_output=True,
                 text=True,
                 timeout=120,
