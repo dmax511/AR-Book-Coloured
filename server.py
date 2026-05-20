@@ -9,14 +9,18 @@ from pathlib import Path
 from PIL import Image
 from io import BytesIO
 
-app = Flask(__name__)
-CORS(app, resources={
-    r"/google-lens-search": {
-        "origins": "*",
-        "methods": ["POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
-    }
-})
+@app.before_request
+def debug():
+    print(">>> METHOD:", request.method)
+    print(">>> PATH:", request.path)
+
+
+CORS(app, supports_credentials=True, resources={r"/*": {
+    "origins": "*",
+    "allow_headers": ["Content-Type", "Authorization"],
+    "methods": ["GET", "POST", "OPTIONS"]
+}})
+
 
 # Your SerpAPI key
 SERPAPI_KEY = "c11b99eb983388f815841b4d0f45bb1b6af080ef6895ec2a3"
