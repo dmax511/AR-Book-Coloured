@@ -38,7 +38,7 @@ def google_lens_search():
         imgbb_response = requests.post(
             'https://api.imgbb.com/1/upload',
             data={
-                'key': '05f928e8be5bf3b7a3f5feb26eb78638',
+                'key': 'b94f12d5f327b50bccca5be87c763675',
                 'image': base64_image
             },
             timeout=30
