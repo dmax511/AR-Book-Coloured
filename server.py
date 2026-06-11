@@ -10,6 +10,27 @@ CORS(app, resources={r"/google-lens-search": {"origins": "*"}})
 
 SERPAPI_KEY = "c11b99eb983388f815841b4d0f45bb1b6af080ef6895ec2a3cac91bf916372b0"
 
+# Cloudinary credentials (from previous steps)
+cloud_name = "dk0tw389c"
+api_key = "773315794418384"
+api_secret = "UBUT_Jn67D8Kpl9spiSN1fVEXj4"
+
+# --- 1. Ensure Cloudinary imports and configuration are present ---
+# This was done in a previous step, but we ensure it here if it's somehow missing
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
+
+# Configure Cloudinary (inline configuration)
+cloudinary.config(
+    cloud_name="dk0tw389c",  # Your Cloud Name
+    api_key="773315794418384",      # Your API Key
+    api_secret="UBUT_Jn67D8Kpl9spiSN1fVEXj4"  # Your API Secret
+)
+
+print("Cloudinary configured successfully.")
+
+
 @app.route('/google-lens-search', methods=['POST', 'OPTIONS'])
 def google_lens_search():
     print(f"Received {request.method} request to /google-lens-search")
@@ -34,35 +55,44 @@ def google_lens_search():
             return jsonify({'error': f'Invalid base64 image: {str(e)}'}), 400
         
         # Step 1: Upload image to ImgBB to get a public URL
-        print(f"Uploading {len(image_bytes)} bytes to ImgBB...")
-        imgbb_response = requests.post(
-            'https://api.imgbb.com/1/upload',
-            data={
-                'key': 'b94f12d5f327b50bccca5be87c763675',
-                'image': base64_image
-            },
-            timeout=30
-        )
+     
+def upload_to_cloudinary(image_bytes):
+    print(f"Attempting upload of {len(image_bytes)} bytes to Cloudinary...")
+    try:
+        upload_result = cloudinary.uploader.upload(BytesIO(image_bytes), folder="colab_onboarding")
         
-        print(f"ImgBB Response Status: {imgbb_response.status_code}")
-        
-        if imgbb_response.status_code != 200:
-            print(f"ImgBB Error: {imgbb_response.text[:500]}")
-            return jsonify({
-                'error': 'Failed to upload image to ImgBB',
-                'details': imgbb_response.text[:500]
-            }), 500
-        
-        imgbb_data = imgbb_response.json()
-        if not imgbb_data.get('success'):
-            print(f"ImgBB upload failed: {imgbb_data}")
-            return jsonify({
-                'error': 'ImgBB upload failed',
-                'details': str(imgbb_data)
-            }), 500
+       
+        if upload_result and 'secure_url' in upload_result:
+            image_url = upload_result['secure_url']
+            print(f"Image successfully uploaded to Cloudinary: {image_url}")
+            return image_url, None
+        else:
+            return None, "Cloudinary upload failed: No secure_url in response"
             
-        image_url = imgbb_data['data']['url']
-        print(f"Image uploaded to ImgBB: {image_url}")
+    except Exception as e:
+        return None, str(e)
+
+# --- Image Upload Process (Modular for multiple servers) ---
+# To add more servers, simply define a new function and add it to this list
+upload_methods = [upload_to_cloudinary]
+image_url = None
+last_error = "No uploaders executed"
+
+for upload_fn in upload_methods:
+    image_url, error = upload_fn(image_bytes)
+    if image_url:
+        break
+    else:
+        last_error = error
+        print(f"Uploader failed: {error}. Trying next...")
+
+# Handle final result with appropriate API response
+if not image_url:
+    print(f"All image uploads failed. Last error: {last_error}")
+    # Returning a 500 error 
+return jsonify({'error': 'Failed to upload image to any server', 'details': last_error}), 500
+else:
+    print(f"Final Image URL ready for SerpAPI: {image_url}")
         
         # Step 2: Send the image URL to SerpAPI Google Lens using GET
         params = {
